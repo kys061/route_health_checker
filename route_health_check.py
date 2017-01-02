@@ -148,8 +148,8 @@ def parse(ping_output):
             }
 
 try:
-    config = imp.load_module('route_health_checker_config',
-                             *imp.find_module('route_health_checker_config'))
+    config = imp.load_module('route_health_check_config',
+                             *imp.find_module('route_health_check_config'))
 except ImportError:
     pass
 except Exception as e:
