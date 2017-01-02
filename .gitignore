@@ -2,3 +2,4 @@ __pycache__
 .ropeproject
 backup
 *.pyc
+route_health_check_config.pyc
