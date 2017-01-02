@@ -12,6 +12,7 @@ import subprocess
 from collections import namedtuple
 import logging
 import logging.handlers
+#import route_health_checker_config as config
 
 first = True
 count = 0
@@ -61,7 +62,6 @@ From 8.8.8.8 (8.8.8.8): icmp_seq 10 rtt 28.84 mS
 rtt min/max/avg/mdev = 28.000 / 85.000 / 32.000 / 5.000 ms
 '''
 
-# Regex for Parse
 # Pull out eg. rtt min/max/avg/mdev == minping/maxping/avgping/jitter
 # == 49.042/49.042/49.042/0.000 ms
 host_matcher = re.compile(r'From ([a-zA-Z0-9.\-]+) *\(')
@@ -70,7 +70,7 @@ minmax_matcher = re.compile(r'(\d+.\d+) / (\d+.\d+) / (\d+.\d+) / (\d+.\d+)')
 
 # logger setting
 # recorder logger setting
-LOG_FILENAME = '/Users/yskang/dev/pingchecker/route_health.log'
+LOG_FILENAME = '/var/log/route_health.log'
 
 # Configure logging - rotate every 20MB and keep the last 100MB in total
 logger = logging.getLogger('saisei.route_health')
@@ -86,7 +86,6 @@ fh.addFilter(filter)
 logger.addHandler(fh)
 logger.addFilter(fh)
 logger.info('***** starting route_health *****')
-
 
 # Excute command in shell
 def subprocess_open(command):
@@ -106,7 +105,7 @@ def _get_match_groups(ping_output, regex):
     """
     match = regex.search(ping_output)
     if not match:
-        raise Exception('Invalid PING output:\n'.format(ping_output))
+        raise Exception('Invalid PING output: {} \n'.format(ping_output))
         pass
     return match.groups()
 
@@ -149,8 +148,8 @@ def parse(ping_output):
             }
 
 try:
-    config = imp.load_module('route_health_check_config',
-                             *imp.find_module('route_health_check_config'))
+    config = imp.load_module('route_health_checker_config',
+                             *imp.find_module('route_health_checker_config'))
 except ImportError:
     pass
 except Exception as e:
@@ -166,42 +165,44 @@ except Exception as e:
 def main():
     global first, count
     global data_01, data_02, data_03
-    ping_data = []
+#    ping_data = []
     Pingstat = namedtuple('Pingstat', ['timestamp', 'host', 'sent', 'received',
                                        'packet_loss', 'minping', 'avgping',
                                        'maxping', 'jitter'])
-    ping_data = [data_01, data_02, data_03]
+#    ping_data = [data_01, data_02, data_03]
     while True:
         try:
             try:
-                #ping_result = subprocess_open(cmd)
-                ping_result = ping_data
+                ping_result = subprocess_open(cmd)
+                #ping_result = ping_data
             except Exception as e:
                 ping_result = None
-                logger.error("result is not done error: {}".format(e))
+                logger.error("cannot get data from cmd, error: {}".format(e))
                 pass
             else:
                 logger.info("ping is done!")
 
             try:
                 if first is True:
-                    parse_result = parse(ping_result[0])
-                    parse_result['timestamp'] = time.strftime("%d %b %Y %H:%M:%S",
-                                                          time.localtime())
-                    count = 1
-                else:
-                    parse_result = parse(ping_result[count])
-                    parse_result['timestamp'] = time.strftime("%d %b %Y %H:%M:%S",
-                                                          time.localtime())
-                    if count < 2:
-                        count += 1
+                    try:
+                        parse_result = parse(ping_result[0])
+                        parse_result['timestamp'] = time.strftime("%d %b %Y %H:%M:%S",
+                                                              time.localtime())
+                    except Exception:
+                        pass
                     else:
-                        count = 1
-
+                        logger.info("first parsing is done.")
+                else:
+                    try:
+                        parse_result = parse(ping_result[0])
+                        parse_result['timestamp'] = time.strftime("%d %b %Y %H:%M:%S",
+                                                              time.localtime())
+                    except Exception:
+                        pass
+                    else:
+                        logger.info("parsing is done")
             except Exception as e:
                 logger.error("parsing error: {}".format(e))
-            else:
-                logger.info("parsing is done.")
 
             if first is True:
                 try:
@@ -216,12 +217,24 @@ def main():
 
                 try:
                     current_ping_stat = Pingstat(**parse_result)
-                    diff = float(current_ping_stat.maxping) - float(before_ping_stat.maxping)
-                    before_ping_stat = Pingstat(**parse_result)
                 except Exception as e:
-                    logger.error("making namedtuple error: {}".format(e))
+                    logger.error("set currnet_ping_stat error: {}".format(e))
                 else:
                     logger.info("current : {}".format(current_ping_stat))
+
+                try:
+                    diff = float(current_ping_stat.maxping) - float(before_ping_stat.maxping)
+                except Exception as e:
+                    logger.error("get diff between current and before error : {}".format(e))
+                else:
+                    logger.info("diff : {}".format(diff))
+
+                try:
+                    before_ping_stat = Pingstat(**parse_result)
+                except Exception as e:
+                    logger.error("set current_ping_stat into before_ping_stat: {}".format(e))
+                else:
+                    logger.info("before : {}".format(before_ping_stat))
 
                 if diff > 10:
                     # do email
